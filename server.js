@@ -10,7 +10,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 10000;
 
 // DEPOSIT - M-PESA STK PUSH
-app.postapp.post('/stkpush', async (req, res) => {
+app.post('/stkpush', async (req, res) => {
   const { phone, amount } = req.body;
   
   // Format phone: 2547XXXXXXXX
@@ -18,7 +18,9 @@ app.postapp.post('/stkpush', async (req, res) => {
   
   try {
     // 1. Get Access Token
-    const auth = Buffer.from(`const auth = Buffer.from(`XTohPASTE_YOUR_KEY:WPrePASTE_YOUR_SECRET`)`).toString('base64');
+    const auth = Buffer.from(
+  `${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`
+).toString('base64');
     const tokenRes = await axios.get('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
       headers: { Authorization: `Basic ${auth}` }
     });
@@ -26,7 +28,9 @@ app.postapp.post('/stkpush', async (req, res) => {
 
     // 2. STK Push
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
-    const password = Buffer.fromconst password = Buffer.from(`174379bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919${timestamp}`).toString('base64');
+    const password = Buffer.from(
+  `${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`
+).toString('base64');
     
     const stkRes = await axios.post('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
       BusinessShortCode: process.env.SHORTCODE,
@@ -46,7 +50,12 @@ app.postapp.post('/stkpush', async (req, res) => {
 
     res.json({ success: true, message: "STK Push sent. Check your phone for PIN" });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+  console.error("Daraja Error:", error.response?.data || error.message);
+
+  res.status(500).json({
+    success: false,
+    error: error.response?.data || error.message
+  });
   }
 });
 app.post('/callback', (req, res) => {
