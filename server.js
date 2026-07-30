@@ -37,7 +37,7 @@ app.postapp.post('/stkpush', async (req, res) => {
       PartyA: formattedPhone,
       PartyB: process.env.SHORTCODE,
       PhoneNumber: formattedPhone,
-      CallBackURL: "https://your-app.onrender.com/callback",
+      CallBackURL: "https://traderscheem.duckdns.org/callback",
       AccountReference: "TradersCheem",
       TransactionDesc: "Deposit"
     }, {
@@ -49,5 +49,11 @@ app.postapp.post('/stkpush', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
+app.post('/callback', (req, res) => {
+  console.log('M-Pesa callback:', req.body);
+  res.json({
+    ResultCode: 0,
+    ResultDesc: "Accepted"
+  });
+});
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
