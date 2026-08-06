@@ -50,7 +50,9 @@ app.post('/stkpush', async (req, res) => {
 
     res.json({ success: true, message: "STK Push sent. Check your phone for PIN" });
   } catch (error) {
-  console.error("Daraja Error:", error.response?.data || error.message);
+  console.error("Daraja Error Status:", error.response?.status);
+console.error("Daraja Error Data:", error.response?.data);
+console.error("Daraja Error Message:", error.message);
 
   res.status(500).json({
     success: false,
