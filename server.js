@@ -90,3 +90,54 @@ app.post('/callback', (req, res) => {
   });
 });
 app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+// Endpoint to update user balance after successful deposit
+app.post('/api/deposit/success', async (req, res) => {
+  const { email, amount } = req.body;
+
+  if (!email || !amount) {
+    return res.status(400).json({ error: "Email and amount are required" });
+  }
+
+  try {
+    const depositAmount = Math.round(Number(amount) * 100) / 100;
+
+    // Add deposited amount to user's balance or insert user if new
+    const updateQuery = `
+      INSERT INTO users (email, balance)
+      VALUES ($1, $2)
+      ON CONFLICT (email)
+      DO UPDATE SET balance = users.balance + EXCLUDED.balance
+      RETURNING balance;
+    `;
+
+    const result = await pool.query(updateQuery, [email, depositAmount]);
+    const newBalance = result.rows[0].balance;
+
+    console.log(`Updated balance for ${email}: $${newBalance}`);
+    res.json({ success: true, balance: newBalance });
+  } catch (err) {
+    console.error("Failed to update deposit balance:", err);
+    res.status(500).json({ error: "Database error updating balance" });
+  }
+});
+
+// Endpoint to retrieve a user's current balance for the frontend
+app.get('/api/user/balance', async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({ error: "Email query param is required" });
+  }
+
+  try {
+    const result = await pool.query('SELECT balance FROM users WHERE email = $1', [email]);
+    if (result.rows.length === 0) {
+      return res.json({ balance: "0.00" });
+    }
+    res.json({ balance: Number(result.rows[0].balance).toFixed(2) });
+  } catch (err) {
+    console.error("Failed to fetch balance:", err);
+    res.status(500).json({ error: "Database error" });
+  }
+});
+  
