@@ -89,8 +89,7 @@ app.post('/callback', (req, res) => {
     ResultDesc: "Accepted"
   });
 });
-app.listen(PORT, () => console.log(`Server running on ${PORT}`));
-// Endpoint to update user balance after successful deposit
+// Endpoint to update user balance with KES to USD conversion
 app.post('/api/deposit/success', async (req, res) => {
   const { email, amount } = req.body;
 
@@ -99,9 +98,10 @@ app.post('/api/deposit/success', async (req, res) => {
   }
 
   try {
-    const depositAmount = Math.round(Number(amount) * 100) / 100;
+    const KES_TO_USD_RATE = 130; 
+    const usdAmount = Number(amount) / KES_TO_USD_RATE;
+    const depositAmount = parseFloat(usdAmount.toFixed(4));
 
-    // Add deposited amount to user's balance or insert user if new
     const updateQuery = `
       INSERT INTO users (email, balance)
       VALUES ($1, $2)
@@ -113,13 +113,14 @@ app.post('/api/deposit/success', async (req, res) => {
     const result = await pool.query(updateQuery, [email, depositAmount]);
     const newBalance = result.rows[0].balance;
 
-    console.log(`Updated balance for ${email}: $${newBalance}`);
+    console.log(`Updated balance for ${email}: $${newBalance} (${amount} KES -> $${depositAmount} USD)`);
     res.json({ success: true, balance: newBalance });
   } catch (err) {
     console.error("Failed to update deposit balance:", err);
     res.status(500).json({ error: "Database error updating balance" });
   }
 });
+
 
 // Endpoint to retrieve a user's current balance for the frontend
 app.get('/api/user/balance', async (req, res) => {
