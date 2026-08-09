@@ -6,6 +6,28 @@ require('dotenv').config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL
+});
+
+async function initDb() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        balance NUMERIC(12, 2) DEFAULT 0.00
+      );
+    `);
+    console.log("Database connected & 'users' table ready!");
+  } catch (err) {
+    console.error("Database connection error:", err);
+  }
+}
+
+initDb();
 
 const PORT = process.env.PORT || 10000;
 
