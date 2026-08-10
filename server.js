@@ -14,13 +14,23 @@ const pool = new Pool({
 
 async function initDb() {
   try {
+    // 1. Create table with full_name and password columns
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
+        full_name VARCHAR(255),
         email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255),
         balance NUMERIC(12, 2) DEFAULT 0.00
       );
     `);
+    
+    // 2. Add missing columns automatically if table already existed
+    await pool.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);
+    `);
+    
     console.log("Database connected & 'users' table ready!");
   } catch (err) {
     console.error("Database connection error:", err);
@@ -30,6 +40,46 @@ async function initDb() {
 initDb();
 
 const PORT = process.env.PORT || 10000;
+
+// USER REGISTRATION ENDPOINT
+app.post('/register', async (req, res) => {
+  const { fullName, email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: "Email and password are required" });
+  }
+
+  try {
+    const insertQuery = `
+      INSERT INTO users (full_name, email, password, balance)
+      VALUES ($1, $2, $3, 0.00)
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id, full_name, email, balance;
+    `;
+
+    const result = await pool.query(insertQuery, [fullName, email, password]);
+
+    // If user already exists
+    if (result.rows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Account already exists, logging in...",
+        user: { fullName, email }
+      });
+    }
+
+    console.log(`New user registered: ${email}`);
+    res.status(200).json({
+      success: true,
+      message: "Account created successfully!",
+      user: result.rows[0]
+    });
+
+  } catch (err) {
+    console.error("Registration database error:", err);
+    res.status(500).json({ success: false, message: "Server error creating account" });
+  }
+});
 
 // DEPOSIT - M-PESA STK PUSH
 app.post('/stkpush', async (req, res) => {
@@ -41,8 +91,8 @@ app.post('/stkpush', async (req, res) => {
   try {
     // 1. Get Access Token
     const auth = Buffer.from(
-  `${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`
-).toString('base64');
+      `${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`
+    ).toString('base64');
     const tokenRes = await axios.get('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
       headers: { Authorization: `Basic ${auth}` }
     });
@@ -51,8 +101,8 @@ app.post('/stkpush', async (req, res) => {
     // 2. STK Push
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
     const password = Buffer.from(
-  `${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`
-).toString('base64');
+      `${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`
+    ).toString('base64');
     
     const stkRes = await axios.post('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
       BusinessShortCode: process.env.SHORTCODE,
@@ -72,16 +122,17 @@ app.post('/stkpush', async (req, res) => {
 
     res.json({ success: true, message: "STK Push sent. Check your phone for PIN" });
   } catch (error) {
-  console.error("Daraja Error Status:", error.response?.status);
-console.error("Daraja Error Data:", error.response?.data);
-console.error("Daraja Error Message:", error.message);
+    console.error("Daraja Error Status:", error.response?.status);
+    console.error("Daraja Error Data:", error.response?.data);
+    console.error("Daraja Error Message:", error.message);
 
-  res.status(500).json({
-    success: false,
-    error: error.response?.data || error.message
-  });
+    res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message
+    });
   }
 });
+
 app.post('/callback', (req, res) => {
   console.log('M-Pesa callback:', req.body);
   res.json({
@@ -89,6 +140,7 @@ app.post('/callback', (req, res) => {
     ResultDesc: "Accepted"
   });
 });
+
 // Endpoint to update user balance with KES to USD conversion
 app.post('/api/deposit/success', async (req, res) => {
   const { email, amount } = req.body;
@@ -121,7 +173,6 @@ app.post('/api/deposit/success', async (req, res) => {
   }
 });
 
-
 // Endpoint to retrieve a user's current balance for the frontend
 app.get('/api/user/balance', async (req, res) => {
   const { email } = req.query;
@@ -141,4 +192,7 @@ app.get('/api/user/balance', async (req, res) => {
     res.status(500).json({ error: "Database error" });
   }
 });
-  
+
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
