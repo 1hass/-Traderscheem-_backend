@@ -4,17 +4,25 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
+
+// Explicit CORS configuration to allow duckdns frontend
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 const { Pool } = require('pg');
 
+// SSL connection configuration for Render PostgreSQL
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
 });
 
 async function initDb() {
   try {
-    // 1. Create table with full_name and password columns
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -25,7 +33,6 @@ async function initDb() {
       );
     `);
     
-    // 2. Add missing columns automatically if table already existed
     await pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
       ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);
@@ -57,9 +64,8 @@ app.post('/register', async (req, res) => {
       RETURNING id, full_name, email, balance;
     `;
 
-    const result = await pool.query(insertQuery, [fullName, email, password]);
+    const result = await pool.query(insertQuery, [fullName || 'User', email, password]);
 
-    // If user already exists
     if (result.rows.length === 0) {
       return res.status(200).json({
         success: true,
@@ -76,8 +82,8 @@ app.post('/register', async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Registration database error:", err);
-    res.status(500).json({ success: false, message: "Server error creating account" });
+    console.error("Registration database error details:", err.message, err.stack);
+    res.status(500).json({ success: false, message: "Server error creating account: " + err.message });
   }
 });
 
@@ -85,11 +91,9 @@ app.post('/register', async (req, res) => {
 app.post('/stkpush', async (req, res) => {
   const { phone, amount } = req.body;
   
-  // Format phone: 2547XXXXXXXX
   const formattedPhone = phone.startsWith('0') ? '254' + phone.slice(1) : phone;
   
   try {
-    // 1. Get Access Token
     const auth = Buffer.from(
       `${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`
     ).toString('base64');
@@ -98,7 +102,6 @@ app.post('/stkpush', async (req, res) => {
     });
     const token = tokenRes.data.access_token;
 
-    // 2. STK Push
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
     const password = Buffer.from(
       `${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`
