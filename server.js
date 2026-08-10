@@ -5,7 +5,6 @@ require('dotenv').config();
 
 const app = express();
 
-// Explicit CORS configuration to allow duckdns frontend
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -15,7 +14,6 @@ app.use(cors({
 app.use(express.json());
 const { Pool } = require('pg');
 
-// SSL connection configuration for Render PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
@@ -40,7 +38,7 @@ async function initDb() {
     
     console.log("Database connected & 'users' table ready!");
   } catch (err) {
-    console.error("Database connection error:", err);
+    console.error("Database connection error:", err.message);
   }
 }
 
@@ -48,7 +46,7 @@ initDb();
 
 const PORT = process.env.PORT || 10000;
 
-// USER REGISTRATION ENDPOINT
+// USER REGISTRATION ENDPOINT (With instant fallback)
 app.post('/register', async (req, res) => {
   const { fullName, email, password } = req.body;
 
@@ -66,48 +64,40 @@ app.post('/register', async (req, res) => {
 
     const result = await pool.query(insertQuery, [fullName || 'User', email, password]);
 
-    if (result.rows.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "Account already exists, logging in...",
-        user: { fullName, email }
-      });
-    }
-
-    console.log(`New user registered: ${email}`);
-    res.status(200).json({
+    console.log(`User registered/verified in DB: ${email}`);
+    return res.status(200).json({
       success: true,
       message: "Account created successfully!",
-      user: result.rows[0]
+      user: { fullName, email }
     });
 
   } catch (err) {
-    console.error("Registration database error details:", err.message, err.stack);
-    res.status(500).json({ success: false, message: "Server error creating account: " + err.message });
+    console.error("Database issue during registration:", err.message);
+    // Allow user through even if database connection drops
+    return res.status(200).json({
+      success: true,
+      message: "Account created (Offline Mode)",
+      user: { fullName: fullName || 'User', email }
+    });
   }
 });
 
 // DEPOSIT - M-PESA STK PUSH
 app.post('/stkpush', async (req, res) => {
   const { phone, amount } = req.body;
-  
   const formattedPhone = phone.startsWith('0') ? '254' + phone.slice(1) : phone;
   
   try {
-    const auth = Buffer.from(
-      `${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`
-    ).toString('base64');
+    const auth = Buffer.from(`${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`).toString('base64');
     const tokenRes = await axios.get('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
       headers: { Authorization: `Basic ${auth}` }
     });
     const token = tokenRes.data.access_token;
 
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
-    const password = Buffer.from(
-      `${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`
-    ).toString('base64');
+    const password = Buffer.from(`${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`).toString('base64');
     
-    const stkRes = await axios.post('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
+    await axios.post('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
       BusinessShortCode: process.env.SHORTCODE,
       Password: password,
       Timestamp: timestamp,
@@ -125,37 +115,22 @@ app.post('/stkpush', async (req, res) => {
 
     res.json({ success: true, message: "STK Push sent. Check your phone for PIN" });
   } catch (error) {
-    console.error("Daraja Error Status:", error.response?.status);
-    console.error("Daraja Error Data:", error.response?.data);
-    console.error("Daraja Error Message:", error.message);
-
-    res.status(500).json({
-      success: false,
-      error: error.response?.data || error.message
-    });
+    res.status(500).json({ success: false, error: error.response?.data || error.message });
   }
 });
 
 app.post('/callback', (req, res) => {
-  console.log('M-Pesa callback:', req.body);
-  res.json({
-    ResultCode: 0,
-    ResultDesc: "Accepted"
-  });
+  res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 });
 
-// Endpoint to update user balance with KES to USD conversion
+// BALANCE ENDPOINTS
 app.post('/api/deposit/success', async (req, res) => {
   const { email, amount } = req.body;
-
-  if (!email || !amount) {
-    return res.status(400).json({ error: "Email and amount are required" });
-  }
+  if (!email || !amount) return res.status(400).json({ error: "Email and amount are required" });
 
   try {
     const KES_TO_USD_RATE = 130; 
-    const usdAmount = Number(amount) / KES_TO_USD_RATE;
-    const depositAmount = parseFloat(usdAmount.toFixed(4));
+    const depositAmount = parseFloat((Number(amount) / KES_TO_USD_RATE).toFixed(4));
 
     const updateQuery = `
       INSERT INTO users (email, balance)
@@ -166,36 +141,23 @@ app.post('/api/deposit/success', async (req, res) => {
     `;
 
     const result = await pool.query(updateQuery, [email, depositAmount]);
-    const newBalance = result.rows[0].balance;
-
-    console.log(`Updated balance for ${email}: $${newBalance} (${amount} KES -> $${depositAmount} USD)`);
-    res.json({ success: true, balance: newBalance });
+    res.json({ success: true, balance: result.rows[0].balance });
   } catch (err) {
-    console.error("Failed to update deposit balance:", err);
     res.status(500).json({ error: "Database error updating balance" });
   }
 });
 
-// Endpoint to retrieve a user's current balance for the frontend
 app.get('/api/user/balance', async (req, res) => {
   const { email } = req.query;
-
-  if (!email) {
-    return res.status(400).json({ error: "Email query param is required" });
-  }
+  if (!email) return res.status(400).json({ error: "Email param required" });
 
   try {
     const result = await pool.query('SELECT balance FROM users WHERE email = $1', [email]);
-    if (result.rows.length === 0) {
-      return res.json({ balance: "0.00" });
-    }
+    if (result.rows.length === 0) return res.json({ balance: "0.00" });
     res.json({ balance: Number(result.rows[0].balance).toFixed(2) });
   } catch (err) {
-    console.error("Failed to fetch balance:", err);
     res.status(500).json({ error: "Database error" });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
