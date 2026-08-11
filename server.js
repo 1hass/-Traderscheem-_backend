@@ -5,7 +5,7 @@ require('dotenv').config();
 
 const app = express();
 
-// 1. CORS
+// 1. CORS Configuration
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -98,86 +98,70 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 5. STK PUSH
+// 5. PESAPAL V3 ORDER PROCESSOR
 app.post('/api/pesapal/stkpush', async (req, res) => {
-  const { phone, amount } = req.body;
-  if (!phone || !amount) return res.status(400).json({ success: false, message: "Phone and amount required" });
+  const { phone, amount, email } = req.body;
 
-  const formattedPhone = phone.startsWith('0') ? '254' + phone.slice(1) : phone;
+  if (!amount) {
+    return res.status(400).json({ success: false, message: "Amount is required" });
+  }
 
   try {
-    const auth = Buffer.from(`${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`).toString('base64');
-    const tokenRes = await axios.get('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
-      headers: { Authorization: `Basic ${auth}` }
-    });
-    const token = tokenRes.data.access_token;
-
-    // Correct Safaricom Timestamp Format: YYYYMMDDHHmmss
-    const date = new Date();
-    const timestamp = date.getFullYear().toString() +
-      String(date.getMonth() + 1).padStart(2, '0') +
-      String(date.getDate()).padStart(2, '0') +
-      String(date.getHours()).padStart(2, '0') +
-      String(date.getMinutes()).padStart(2, '0') +
-      String(date.getSeconds()).padStart(2, '0');
-
-    const password = Buffer.from(`${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`).toString('base64');
-
-    const stkRes = await axios.post('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
-      BusinessShortCode: process.env.SHORTCODE,
-      Password: password,
-      Timestamp: timestamp,
-      TransactionType: "CustomerPayBillOnline",
-      Amount: amount,
-      PartyA: formattedPhone,
-      PartyB: process.env.SHORTCODE,
-      PhoneNumber: formattedPhone,
-      CallBackURL: `https://traderscheem.duckdns.org/callback`,
-      AccountReference: "TradersCheem",
-      TransactionDesc: "Deposit"
+    // A. Fetch Pesapal Authentication Token
+    const authRes = await axios.post('https://pay.pesapal.com/v3/api/Auth/RequestToken', {
+      consumer_key: process.env.PESAPAL_CONSUMER_KEY,
+      consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
     }, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
     });
 
-    res.json({ success: true, message: "STK Push sent. Check your phone for PIN", data: stkRes.data });
+    const token = authRes.data.token;
+
+    // B. Submit Order to Pesapal
+    const orderData = {
+      id: `ORDER_${Date.now()}`,
+      currency: "KES",
+      amount: parseFloat(amount),
+      description: "Account Deposit - TradersCheem",
+      callback_url: "https://traderscheem.duckdns.org/trade.html",
+      notification_id: process.env.PESAPAL_NOTIFICATION_ID,
+      billing_address: {
+        email_address: email || "trader@traderscheem.com",
+        phone_number: phone || "",
+        first_name: "Trader",
+        last_name: "User"
+      }
+    };
+
+    const orderRes = await axios.post('https://pay.pesapal.com/v3/api/Transactions/SubmitOrderRequest', orderData, {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+
+    // Send iframe url back to frontend modal
+    res.json({ 
+      success: true, 
+      redirect_url: orderRes.data.redirect_url,
+      order_tracking_id: orderRes.data.order_tracking_id 
+    });
+
   } catch (error) {
-    console.error("STK Push error:", error.response?.data || error.message);
-    res.status(500).json({ success: false, error: error.response?.data || error.message });
+    console.error("Pesapal API Error:", error.response?.data || error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to connect to Pesapal", 
+      details: error.response?.data || error.message 
+    });
   }
 });
 
-    const token = tokenRes.data.access_token;
-
-    const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
-    const password = Buffer.from(`${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`).toString('base64');
-
-    await axios.post('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
-      BusinessShortCode: process.env.SHORTCODE,
-      Password: password,
-      Timestamp: timestamp,
-      TransactionType: "CustomerPayBillOnline",
-      Amount: amount,
-      PartyA: formattedPhone,
-      PartyB: process.env.SHORTCODE,
-      PhoneNumber: formattedPhone,
-      CallBackURL: `https://traderscheem.duckdns.org/callback`,
-      AccountReference: "TradersCheem",
-      TransactionDesc: "Deposit"
-    }, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-
-    res.json({ success: true, message: "STK Push sent. Check your phone for PIN" });
-  } catch (error) {
-    console.error("STK Push error:", error.response?.data || error.message);
-    res.status(500).json({ success: false, error: error.response?.data || error.message });
-  }
-});
-
-// 6. M-PESA CALLBACK
+// 6. PESAPAL IPN CALLBACK
 app.post('/callback', (req, res) => {
-  console.log("M-PESA Callback:", JSON.stringify(req.body));
-  res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  console.log("Pesapal Callback received:", JSON.stringify(req.body));
+  res.json({ status: "200", message: "Notification Received" });
 });
 
 // 7. BALANCE ENDPOINTS
