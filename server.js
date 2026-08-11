@@ -98,7 +98,7 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 5. STK PUSH (Updated endpoint paths to match trade.html)
+// 5. STK PUSH
 app.post('/api/pesapal/stkpush', async (req, res) => {
   const { phone, amount } = req.body;
   if (!phone || !amount) return res.status(400).json({ success: false, message: "Phone and amount required" });
@@ -110,6 +110,42 @@ app.post('/api/pesapal/stkpush', async (req, res) => {
     const tokenRes = await axios.get('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
       headers: { Authorization: `Basic ${auth}` }
     });
+    const token = tokenRes.data.access_token;
+
+    // Correct Safaricom Timestamp Format: YYYYMMDDHHmmss
+    const date = new Date();
+    const timestamp = date.getFullYear().toString() +
+      String(date.getMonth() + 1).padStart(2, '0') +
+      String(date.getDate()).padStart(2, '0') +
+      String(date.getHours()).padStart(2, '0') +
+      String(date.getMinutes()).padStart(2, '0') +
+      String(date.getSeconds()).padStart(2, '0');
+
+    const password = Buffer.from(`${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`).toString('base64');
+
+    const stkRes = await axios.post('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
+      BusinessShortCode: process.env.SHORTCODE,
+      Password: password,
+      Timestamp: timestamp,
+      TransactionType: "CustomerPayBillOnline",
+      Amount: amount,
+      PartyA: formattedPhone,
+      PartyB: process.env.SHORTCODE,
+      PhoneNumber: formattedPhone,
+      CallBackURL: `https://traderscheem.duckdns.org/callback`,
+      AccountReference: "TradersCheem",
+      TransactionDesc: "Deposit"
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    res.json({ success: true, message: "STK Push sent. Check your phone for PIN", data: stkRes.data });
+  } catch (error) {
+    console.error("STK Push error:", error.response?.data || error.message);
+    res.status(500).json({ success: false, error: error.response?.data || error.message });
+  }
+});
+
     const token = tokenRes.data.access_token;
 
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, -3);
