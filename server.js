@@ -5,31 +5,31 @@ require('dotenv').config();
 
 const app = express();
 
-// 1. CORS - allow your frontend domain. Use * only for testing
+// 1. CORS
 app.use(cors({
-  origin: '*', // change to 'https://traderscheem.duckdns.org' for production
+  origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
 
-// 2. Postgres connection
+// 2. Postgres Connection
 const { Pool } = require('pg');
 
 if (!process.env.DATABASE_URL) {
-  console.error("FATAL: DATABASE_URL is not set in.env");
-  process.exit(1); // crash early so you know
+  console.error("FATAL: DATABASE_URL is not set in .env");
+  process.exit(1);
 }
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL.includes('localhost')
-   ? false
+    ? false
     : { rejectUnauthorized: false }
 });
 
-// Test DB on startup
+// Database Initialization
 async function initDb() {
   try {
     await pool.query('SELECT 1');
@@ -46,11 +46,11 @@ async function initDb() {
     console.log("Database connected & 'users' table ready!");
   } catch (err) {
     console.error("Database connection error:", err.message);
-    process.exit(1); // stop server if DB is down
+    process.exit(1);
   }
 }
 
-// 3. HEALTH CHECK - so frontend knows if backend is up
+// 3. HEALTH CHECK
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -60,11 +60,11 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// 4. USER REGISTRATION ENDPOINT
+// 4. USER REGISTRATION
 app.post('/register', async (req, res) => {
   const { fullName, email, password } = req.body;
 
-  if (!email ||!password) {
+  if (!email || !password) {
     return res.status(400).json({ success: false, message: "Email and password are required" });
   }
 
@@ -79,7 +79,6 @@ app.post('/register', async (req, res) => {
     const result = await pool.query(insertQuery, [fullName || 'User', email, password]);
 
     if (result.rowCount === 0) {
-      // email already exists
       return res.status(409).json({ success: false, message: "Email already registered" });
     }
 
@@ -99,12 +98,12 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 5. DEPOSIT - M-PESA STK PUSH
-app.post('/stkpush', async (req, res) => {
+// 5. STK PUSH (Updated endpoint paths to match trade.html)
+app.post('/api/pesapal/stkpush', async (req, res) => {
   const { phone, amount } = req.body;
-  if (!phone ||!amount) return res.status(400).json({ success: false, message: "Phone and amount required" });
+  if (!phone || !amount) return res.status(400).json({ success: false, message: "Phone and amount required" });
 
-  const formattedPhone = phone.startsWith('0')? '254' + phone.slice(1) : phone;
+  const formattedPhone = phone.startsWith('0') ? '254' + phone.slice(1) : phone;
 
   try {
     const auth = Buffer.from(`${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`).toString('base64');
@@ -140,7 +139,7 @@ app.post('/stkpush', async (req, res) => {
 });
 
 // 6. M-PESA CALLBACK
-app.post('/callback', express.json(), (req, res) => {
+app.post('/callback', (req, res) => {
   console.log("M-PESA Callback:", JSON.stringify(req.body));
   res.json({ ResultCode: 0, ResultDesc: "Accepted" });
 });
@@ -148,7 +147,7 @@ app.post('/callback', express.json(), (req, res) => {
 // 7. BALANCE ENDPOINTS
 app.post('/api/deposit/success', async (req, res) => {
   const { email, amount } = req.body;
-  if (!email ||!amount) return res.status(400).json({ error: "Email and amount are required" });
+  if (!email || !amount) return res.status(400).json({ error: "Email and amount are required" });
 
   try {
     const KES_TO_USD_RATE = 130;
@@ -183,9 +182,11 @@ app.get('/api/user/balance', async (req, res) => {
   }
 });
 
+// 8. START EXPRESS SERVER
 const PORT = process.env.PORT || 10000;
 
-// Start server only after DB is ready
 initDb().then(() => {
-  app.listen(PORT, '0.0.0.0', () => console.log(`Server listening on port ${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running and listening on port ${PORT}`);
+  });
 });
