@@ -98,8 +98,8 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 5. PESAPAL V3 ORDER PROCESSOR
-app.post('/api/pesapal/stkpush', async (req, res) => {
+// 5. PESAPAL V3 ORDER PROCESSOR (Route aligned with frontend)
+app.post('/stkpush', async (req, res) => {
   const { phone, amount, email } = req.body;
 
   if (!amount) {
