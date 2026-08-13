@@ -98,16 +98,26 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 5. PESAPAL V3 ORDER PROCESSOR
+// 5. PESAPAL V3 ORDER PROCESSOR (UPDATED FOR DYNAMIC COUNTRY/CURRENCY)
 app.post('/stkpush', async (req, res) => {
-  const { phone, amount, email } = req.body;
+  const { phone, amount, countryCode, email } = req.body;
 
-  // EDIT HERE: Validate both amount AND phone
   if (!amount || !phone) {
     return res.status(400).json({ success: false, message: "Amount and phone required" });
   }
 
   try {
+    // Map African country codes to native mobile money currencies & ISO codes
+    const countryMap = {
+      '254': { currency: 'KES', iso: 'KE' }, // Kenya (M-Pesa / Airtel)
+      '255': { currency: 'TZS', iso: 'TZ' }, // Tanzania (Vodacom M-Pesa / Tigo / Airtel)
+      '256': { currency: 'UGX', iso: 'UG' }, // Uganda (MTN / Airtel)
+      '250': { currency: 'RWF', iso: 'RW' }  // Rwanda (MTN)
+    };
+
+    // Default to USD for all other African nations & worldwide (Card/International processing)
+    const selectedConfig = countryMap[countryCode] || { currency: 'USD', iso: 'US' };
+
     // A. Fetch Pesapal Authentication Token
     const authRes = await axios.post('https://pay.pesapal.com/v3/api/Auth/RequestToken', {
       consumer_key: process.env.PESAPAL_CONSUMER_KEY,
@@ -118,17 +128,18 @@ app.post('/stkpush', async (req, res) => {
 
     const token = authRes.data.token;
 
-    // B. Submit Order to Pesapal
+    // B. Submit Order to Pesapal with Dynamic Currency and Country ISO
     const orderData = {
       id: `ORDER_${Date.now()}`,
-      currency: "KES",
+      currency: selectedConfig.currency, // Switches KES to TZS, UGX, RWF, or USD
       amount: parseFloat(amount),
       description: "Account Deposit - TradersCheem",
       callback_url: "https://traderscheem.duckdns.org/trade.html",
       notification_id: process.env.PESAPAL_NOTIFICATION_ID,
       billing_address: {
         email_address: email || "trader@traderscheem.com",
-        phone_number: phone, // EDIT HERE: Pass the received phone directly
+        phone_number: phone,
+        country_code: selectedConfig.iso, // Passes KE, TZ, UG, RW, or US
         first_name: "Trader",
         last_name: "User"
       }
@@ -158,7 +169,6 @@ app.post('/stkpush', async (req, res) => {
     });
   }
 });
-
 
 // 6. PESAPAL IPN CALLBACK
 app.post('/callback', (req, res) => {
