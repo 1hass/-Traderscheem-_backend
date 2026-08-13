@@ -98,12 +98,13 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 5. PESAPAL V3 ORDER PROCESSOR (Route aligned with frontend)
+// 5. PESAPAL V3 ORDER PROCESSOR
 app.post('/stkpush', async (req, res) => {
   const { phone, amount, email } = req.body;
 
-  if (!amount) {
-    return res.status(400).json({ success: false, message: "Amount is required" });
+  // EDIT HERE: Validate both amount AND phone
+  if (!amount || !phone) {
+    return res.status(400).json({ success: false, message: "Amount and phone required" });
   }
 
   try {
@@ -127,7 +128,7 @@ app.post('/stkpush', async (req, res) => {
       notification_id: process.env.PESAPAL_NOTIFICATION_ID,
       billing_address: {
         email_address: email || "trader@traderscheem.com",
-        phone_number: phone || "",
+        phone_number: phone, // EDIT HERE: Pass the received phone directly
         first_name: "Trader",
         last_name: "User"
       }
@@ -157,6 +158,7 @@ app.post('/stkpush', async (req, res) => {
     });
   }
 });
+
 
 // 6. PESAPAL IPN CALLBACK
 app.post('/callback', (req, res) => {
