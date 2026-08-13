@@ -98,7 +98,7 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// 5. PESAPAL V3 ORDER PROCESSOR (UPDATED FOR DYNAMIC COUNTRY/CURRENCY)
+// 5. PESAPAL V3 ORDER PROCESSOR (ALL AFRICA REGIONAL MAPPING)
 app.post('/stkpush', async (req, res) => {
   const { phone, amount, countryCode, email } = req.body;
 
@@ -107,18 +107,75 @@ app.post('/stkpush', async (req, res) => {
   }
 
   try {
-    // Map African country codes to native mobile money currencies & ISO codes
+    // Complete mapping for African Calling Codes to Local Currencies & ISO Codes
     const countryMap = {
-      '254': { currency: 'KES', iso: 'KE' }, // Kenya (M-Pesa / Airtel)
-      '255': { currency: 'TZS', iso: 'TZ' }, // Tanzania (Vodacom M-Pesa / Tigo / Airtel)
-      '256': { currency: 'UGX', iso: 'UG' }, // Uganda (MTN / Airtel)
-      '250': { currency: 'RWF', iso: 'RW' }  // Rwanda (MTN)
+      // East Africa
+      '254': { currency: 'KES', iso: 'KE' }, // Kenya
+      '255': { currency: 'TZS', iso: 'TZ' }, // Tanzania
+      '256': { currency: 'UGX', iso: 'UG' }, // Uganda
+      '250': { currency: 'RWF', iso: 'RW' }, // Rwanda
+      '257': { currency: 'BIF', iso: 'BI' }, // Burundi
+      '251': { currency: 'ETB', iso: 'ET' }, // Ethiopia
+      '252': { currency: 'SOS', iso: 'SO' }, // Somalia
+      '253': { currency: 'DJI', iso: 'DJ' }, // Djibouti
+      '211': { currency: 'SSP', iso: 'SS' }, // South Sudan
+      '269': { currency: 'KMF', iso: 'KM' }, // Comoros
+      '230': { currency: 'MUR', iso: 'MU' }, // Mauritius
+      '248': { currency: 'SCR', iso: 'SC' }, // Seychelles
+
+      // West Africa
+      '234': { currency: 'NGN', iso: 'NG' }, // Nigeria
+      '233': { currency: 'GHS', iso: 'GH' }, // Ghana
+      '221': { currency: 'XOF', iso: 'SN' }, // Senegal (CFA)
+      '225': { currency: 'XOF', iso: 'CI' }, // Ivory Coast (CFA)
+      '223': { currency: 'XOF', iso: 'ML' }, // Mali (CFA)
+      '226': { currency: 'XOF', iso: 'BF' }, // Burkina Faso (CFA)
+      '228': { currency: 'XOF', iso: 'TG' }, // Togo (CFA)
+      '229': { currency: 'XOF', iso: 'BJ' }, // Benin (CFA)
+      '224': { currency: 'GNF', iso: 'GN' }, // Guinea
+      '231': { currency: 'LRD', iso: 'LR' }, // Liberia
+      '232': { currency: 'SLE', iso: 'SL' }, // Sierra Leone
+      '220': { currency: 'GMD', iso: 'GM' }, // Gambia
+      '238': { currency: 'CVE', iso: 'CV' }, // Cape Verde
+      '245': { currency: 'XOF', iso: 'GW' }, // Guinea-Bissau (CFA)
+
+      // Southern Africa
+      '27':  { currency: 'ZAR', iso: 'ZA' }, // South Africa
+      '260': { currency: 'ZMW', iso: 'ZM' }, // Zambia
+      '263': { currency: 'ZWG', iso: 'ZW' }, // Zimbabwe
+      '265': { currency: 'MWK', iso: 'MW' }, // Malawi
+      '258': { currency: 'MZN', iso: 'MZ' }, // Mozambique
+      '267': { currency: 'BWP', iso: 'BW' }, // Botswana
+      '264': { currency: 'NAD', iso: 'NA' }, // Namibia
+      '266': { currency: 'LSL', iso: 'LS' }, // Lesotho
+      '268': { currency: 'SZL', iso: 'SZ' }, // Eswatini
+      '261': { currency: 'MGA', iso: 'MG' }, // Madagascar
+      '244': { currency: 'AOA', iso: 'AO' }, // Angola
+
+      // North Africa
+      '20':  { currency: 'EGP', iso: 'EG' }, // Egypt
+      '212': { currency: 'MAD', iso: 'MA' }, // Morocco
+      '213': { currency: 'DZD', iso: 'DZ' }, // Algeria
+      '216': { currency: 'TND', iso: 'TN' }, // Tunisia
+      '218': { currency: 'LYD', iso: 'LY' }, // Libya
+      '222': { currency: 'MRU', iso: 'MR' }, // Mauritania
+      '249': { currency: 'SDG', iso: 'SD' }, // Sudan
+
+      // Central Africa
+      '237': { currency: 'XAF', iso: 'CM' }, // Cameroon (CFA)
+      '241': { currency: 'XAF', iso: 'GA' }, // Gabon (CFA)
+      '242': { currency: 'XAF', iso: 'CG' }, // Republic of the Congo (CFA)
+      '243': { currency: 'CDF', iso: 'CD' }, // Democratic Republic of the Congo
+      '236': { currency: 'XAF', iso: 'CF' }, // Central African Republic (CFA)
+      '235': { currency: 'XAF', iso: 'TD' }, // Chad (CFA)
+      '240': { currency: 'XAF', iso: 'GQ' }, // Equatorial Guinea (CFA)
+      '239': { currency: 'STN', iso: 'ST' }  // São Tomé and Príncipe
     };
 
-    // Default to USD for all other African nations & worldwide (Card/International processing)
+    // Default to USD for unlisted international numbers
     const selectedConfig = countryMap[countryCode] || { currency: 'USD', iso: 'US' };
 
-    // A. Fetch Pesapal Authentication Token
+    // Fetch Pesapal Authentication Token
     const authRes = await axios.post('https://pay.pesapal.com/v3/api/Auth/RequestToken', {
       consumer_key: process.env.PESAPAL_CONSUMER_KEY,
       consumer_secret: process.env.PESAPAL_CONSUMER_SECRET
@@ -128,10 +185,10 @@ app.post('/stkpush', async (req, res) => {
 
     const token = authRes.data.token;
 
-    // B. Submit Order to Pesapal with Dynamic Currency and Country ISO
+    // Submit Order Payload
     const orderData = {
       id: `ORDER_${Date.now()}`,
-      currency: selectedConfig.currency, // Switches KES to TZS, UGX, RWF, or USD
+      currency: selectedConfig.currency,
       amount: parseFloat(amount),
       description: "Account Deposit - TradersCheem",
       callback_url: "https://traderscheem.duckdns.org/trade.html",
@@ -139,7 +196,7 @@ app.post('/stkpush', async (req, res) => {
       billing_address: {
         email_address: email || "trader@traderscheem.com",
         phone_number: phone,
-        country_code: selectedConfig.iso, // Passes KE, TZ, UG, RW, or US
+        country_code: selectedConfig.iso,
         first_name: "Trader",
         last_name: "User"
       }
@@ -153,7 +210,6 @@ app.post('/stkpush', async (req, res) => {
       }
     });
 
-    // Send iframe url back to frontend modal
     res.json({ 
       success: true, 
       redirect_url: orderRes.data.redirect_url,
@@ -169,6 +225,7 @@ app.post('/stkpush', async (req, res) => {
     });
   }
 });
+
 
 // 6. PESAPAL IPN CALLBACK
 app.post('/callback', (req, res) => {
